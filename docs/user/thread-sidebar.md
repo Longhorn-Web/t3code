@@ -43,6 +43,16 @@ in a new thread's model picker to add or remove them. A regular click returns to
 single model. Choose a base branch and send. Each selection starts a separate thread
 and worktree while you stay in the new thread composer. This requires a Git project.
 
+## Keep several projects in view
+
+On web and desktop, choose **Projects** at the top of the sidebar to browse
+conversations under expandable project headings. Use **All projects** to choose
+several projects to keep in view. **Clear selection** lets you start a new selection;
+**All projects** restores the full list, including projects you add later.
+Your project selection and expanded headings are remembered on this device.
+Choose **Inbox** to return to the flat thread list. Search continues to find
+conversations across projects through the command palette in Projects view.
+
 ## Pin and reorder threads
 
 Pin a thread from its menu to keep it above your active work.

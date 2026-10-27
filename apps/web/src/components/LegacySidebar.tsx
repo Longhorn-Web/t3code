@@ -1,6 +1,7 @@
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/client-runtime/thread-pull-requests";
 import { Spinner } from "~/components/ui/spinner";
+import * as Schema from "effect/Schema";
 import {
   ArchiveIcon,
   ArrowUpDownIcon,
@@ -217,6 +218,13 @@ import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { CommandDialogTrigger } from "./ui/command";
 import { useClientSettings, updateClientSettings } from "~/hooks/useSettings";
+import { useLocalStorage } from "../hooks/useLocalStorage";
+import { SidebarViewSwitch } from "./sidebar/SidebarViewSwitch";
+import { SidebarProjectPicker } from "./sidebar/SidebarProjectPicker";
+import {
+  selectSidebarProjects,
+  type SidebarProjectSelection,
+} from "./sidebar/SidebarProjectSelection.logic";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { canShareWithGuestAtom } from "./chat/guestShareAvailability";
@@ -2293,6 +2301,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           {...(isManualProjectSorting && dragHandleProps ? dragHandleProps.attributes : {})}
           {...(isManualProjectSorting && dragHandleProps ? dragHandleProps.listeners : {})}
           onPointerDownCapture={handleProjectButtonPointerDownCapture}
+          aria-expanded={projectExpanded}
           onClick={handleProjectButtonClick}
           onKeyDown={handleProjectButtonKeyDown}
           onContextMenu={handleProjectButtonContextMenu}
@@ -2337,6 +2346,12 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
                 {project.groupedProjectCount} projects
               </span>
             ) : null}
+            <span
+              className="shrink-0 text-xs tabular-nums text-sidebar-muted-foreground/60"
+              aria-label={`${visibleProjectThreads.length} conversations`}
+            >
+              {visibleProjectThreads.length}
+            </span>
           </span>
           <span aria-hidden className="w-4 shrink-0 max-sm:w-10" />
         </SidebarMenuButton>
@@ -2787,6 +2802,9 @@ function SortableProjectItem({
 }
 
 interface SidebarProjectsContentProps {
+  allProjects: readonly SidebarProjectSnapshot[];
+  projectSelection: SidebarProjectSelection;
+  onProjectSelectionChange: (selection: SidebarProjectSelection) => void;
   showArm64IntelBuildWarning: boolean;
   arm64IntelBuildWarningDescription: string | null;
   desktopUpdateButtonAction: "download" | "install" | "none";
@@ -2830,6 +2848,9 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
   props: SidebarProjectsContentProps,
 ) {
   const {
+    allProjects,
+    projectSelection,
+    onProjectSelectionChange,
     showArm64IntelBuildWarning,
     arm64IntelBuildWarningDescription,
     desktopUpdateButtonAction,
@@ -2883,6 +2904,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     <SidebarContent
       fixedHeader={
         <SidebarGroup className="z-[1]">
+          <SidebarViewSwitch />
           <SidebarMenu>
             <SidebarMenuItem>
               <CommandDialogTrigger
@@ -2951,6 +2973,19 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
             </Tooltip>
           </div>
         </div>
+
+        {allProjects.length > 0 ? (
+          <div className="mb-2 flex items-center justify-between px-1">
+            <SidebarProjectPicker
+              projects={allProjects}
+              selection={projectSelection}
+              onSelectionChange={onProjectSelectionChange}
+            />
+            <span className="pr-1 text-xs tabular-nums text-muted-foreground">
+              {sortedProjects.length} of {allProjects.length}
+            </span>
+          </div>
+        ) : null}
 
         {isManualProjectSorting ? (
           <DndContext
@@ -3029,6 +3064,18 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
         {projectsLength === 0 && (
           <div className="px-2 pt-4 text-center text-secondary-label text-xs">No projects yet</div>
         )}
+        {projectsLength > 0 && sortedProjects.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground">
+            <span>
+              {projectSelection?.length === 0
+                ? "Choose projects to see their conversations."
+                : "Your selected projects are not available."}
+            </span>
+            <Button size="xs" variant="outline" onClick={() => onProjectSelectionChange(null)}>
+              Show all projects
+            </Button>
+          </div>
+        ) : null}
       </SidebarGroup>
     </SidebarContent>
   );
@@ -3272,6 +3319,8 @@ function clearThreadSelectionOnOutsideMouseDown(event: globalThis.MouseEvent) {
   if (shouldClearThreadSelectionOnMouseDown(target)) selection.clearSelection();
 }
 
+const projectSelectionSchema = Schema.NullOr(Schema.Array(Schema.String));
+
 export default function LegacySidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
   const navigate = useNavigate();
@@ -3313,11 +3362,21 @@ export default function LegacySidebar({ routeReveal }: { routeReveal: SidebarRou
     projectPhysicalKeyByScopedRef,
     sidebarProjects,
   } = useLegacySidebarProjects();
-  const { sortedProjects, sortedProjectKeys } = useSortedLegacySidebarProjects({
+  const { sortedProjects: allSortedProjects } = useSortedLegacySidebarProjects({
     sidebarProjects,
     physicalToLogicalKey,
     projectPhysicalKeyByScopedRef,
     sidebarProjectSortOrder,
+  });
+  const [projectSelection, setProjectSelection] = useLocalStorage<
+    SidebarProjectSelection,
+    SidebarProjectSelection
+  >("t3code:sidebar:visible-projects", null, projectSelectionSchema);
+  const sortedProjects = selectSidebarProjects(allSortedProjects, projectSelection);
+  const sortedProjectKeys = sortedProjects.map((project) => project.projectKey);
+  const handleProjectSelectionChange = useStableCallback((selection: SidebarProjectSelection) => {
+    clearSelection();
+    setProjectSelection(selection);
   });
   const {
     sidebarThreadByKey,
@@ -3636,6 +3695,9 @@ export default function LegacySidebar({ routeReveal }: { routeReveal: SidebarRou
       <SidebarChromeHeader isElectron={isElectron} />
 
       <SidebarProjectsContent
+        allProjects={allSortedProjects}
+        projectSelection={projectSelection}
+        onProjectSelectionChange={handleProjectSelectionChange}
         showArm64IntelBuildWarning={showArm64IntelBuildWarning}
         arm64IntelBuildWarningDescription={arm64IntelBuildWarningDescription}
         desktopUpdateButtonAction={desktopUpdateButtonAction}
